@@ -1,0 +1,101 @@
+## An Introduction to Biostatistical Analysis with R
+## R codes for lecture on 05/08/2020
+
+#### 0 check and install (if necessary) packages required in this script
+required.packages <- c('ape', 'gplots', 'fields', 'cluster')
+new.packages <- required.packages[!(required.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages)) {
+  install.packages(new.packages, repos="http://cran.us.r-project.org")
+}
+# load required packages
+require(ape)
+require(gplots)
+require(fields)
+require(cluster)
+
+## Summarize information existing in a number of variables
+# Unsupervised and supervised classification
+
+# this data set was analyzed in Zhao 2011 (Nature Communications 2:467)
+line <- read.csv("RiceDiversityLine.csv")
+pheno <- read.csv("RiceDiversityPheno.csv")
+geno <- read.csv("RiceDiversityGeno.csv")
+line.pheno <- merge(line, pheno, by.x = "NSFTV.ID", by.y = "NSFTVID")
+alldata <- merge(line.pheno, geno, by.x = "NSFTV.ID", by.y = "NSFTVID")
+rownames(alldata) <- alldata$NSFTV.ID
+
+#### Preparation for homework ####
+data.tr <- data.frame(
+  number = alldata$Panicle.number.per.plant,
+  length = alldata$Panicle.length,
+  branch = alldata$Primary.panicle.branch.number,
+  seed = alldata$Seed.number.per.panicle,
+  florets = alldata$Florets.per.panicle
+)
+missing <- apply(is.na(data.tr), 1, sum) > 0
+data.tr <- data.tr[!missing, ]
+subpop.tr <- alldata$Sub.population[!missing]
+
+# scaling
+data.tr <- scale(data.tr)
+
+# create an own function
+myplot <- function(tre, subpop, type = "unrooted", ...) {
+  phy <- as.phylo(tre)
+  col <- as.numeric(subpop[phy$edge[,2]])
+  edge.col <- ifelse(is.na(col), "gray", col)
+  plot(phy, edge.color = edge.col, type = type, show.tip.label = F, ...)
+}
+
+# perform clusetering for varieties 
+d <- dist(data.tr)
+tre.var <- hclust(d, method = "ward.D2")
+op <- par(mfrow = c(1, 1))
+myplot(tre.var, subpop.tr, type = "phylogram")
+par(op)
+
+# perform clusetering for both varieties and traits
+d <- dist(data.tr)
+tre.var <- hclust(d, method = "ward.D2")
+d <- dist(t(data.tr))
+tre.tra <- hclust(d, "ward.D2")
+
+
+# this part is again optional
+pdf("fig10-2.pdf", height = 12)
+heatmap.2(data.tr, Rowv = as.dendrogram(tre.var),
+          Colv = as.dendrogram(tre.tra),
+          RowSideColors = as.character(as.numeric(subpop.tr)),
+          labRow = subpop.tr,
+          margins = c(12,2), col=redgreen(256), trace = "none", lhei = c(2,10), cexRow = 0.3)
+dev.off()
+
+###### classification based on the hierarchical clustering result #####
+# classify samples with the cutree function
+d <- dist(data.tr)
+tre <- hclust(d, method = "ward.D2")
+cluster.id <- cutree(tre, k = 5)
+
+# kmeans clustering
+kms <- kmeans(data.tr, centers = 5)
+
+# compare results
+table(kms$cluster, subpop.tr)
+table(cluster.id, subpop.tr)
+table(kms$cluster, cluster.id)
+
+#### select representative varieties/lines based on trait data ####
+# select 20 varieties/lines (by classifying all samples into 20 groups)
+require(cluster)
+n.sel <- 20
+kmed <- pam(data.tr, k = n.sel)
+kmed$id.med
+
+# look at the distribution of 20 varieties/lines selected as medoids
+pca.tr <- prcomp(data.tr, scale = T)
+pch <- rep(1, nrow(data.tr))
+pch[kmed$id.med] <- 19
+op <- par(mfrow = c(1,2))
+plot(pca.tr$x[,1:2], col = as.numeric(subpop.tr), pch = pch)
+plot(pca.tr$x[,3:4], col = as.numeric(subpop.tr), pch = pch)
+par(op)
